@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>API Inspector — 本地预览</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #1e1e1e; }
+    .preview-banner {
+      font: 12px/1.5 system-ui, sans-serif;
+      padding: 8px 12px;
+      background: #252526;
+      color: #ccc;
+      border-bottom: 1px solid #333;
+    }
+    .preview-banner code { color: #89d185; }
+    #app { height: calc(100% - 38px); min-height: 400px; }
+  </style>
+</head>
+<body>
+  <div class="preview-banner">
+    本地预览（已 Mock <code>chrome.*</code>）。扩展真机请在 Chrome 加载 <code>dist/</code>。
+  </div>
+  <div id="app"></div>
+  <script type="module" src="/preview/main.tsx"></script>
+</body>
+</html>

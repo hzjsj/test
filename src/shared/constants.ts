@@ -1,0 +1,21 @@
+export const MSG_TYPES = {
+  CAPTURED_REQUEST: 'CAPTURED_REQUEST',
+  GET_STATE: 'GET_STATE',
+  STATE_UPDATE: 'STATE_UPDATE',
+  UPDATE_FILTERS: 'UPDATE_FILTERS',
+  GET_FILTERED_REQUESTS: 'GET_FILTERED_REQUESTS',
+  LOG_TO_CONSOLE: 'LOG_TO_CONSOLE',
+  FILTERS_CHANGED: 'FILTERS_CHANGED',
+  CLEAR_REQUESTS: 'CLEAR_REQUESTS',
+  TOGGLE_CAPTURE: 'TOGGLE_CAPTURE',
+  REQUEST_FOR_CONTENT: 'REQUEST_FOR_CONTENT',
+} as const;
+
+export const STORAGE_KEYS = {
+  FILTER_RULES: 'filter_rules',
+  API_PATTERNS: 'api_patterns',
+  /** `{ [tabId: string]: { preserveLog?: boolean; capturePaused?: boolean } }` */
+  TAB_INSPECTOR_SETTINGS: 'tab_inspector_settings',
+} as const;
+
+export const MAX_RESPONSE_SIZE = 1024 * 1024; // 1MB
