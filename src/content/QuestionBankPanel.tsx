@@ -1,7 +1,8 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Drawer, Table, Select, Space, Input, Tag, Badge, Button, Upload, Tabs, Tooltip, Typography, message, Spin, Alert } from 'antd';
-import { BookOutlined, UploadOutlined, CopyOutlined, DownloadOutlined, FileTextOutlined, CheckCircleOutlined } from '@ant-design/icons';
+import { BookOutlined, UploadOutlined, CopyOutlined, DownloadOutlined, FileTextOutlined, CheckCircleOutlined, PlusSquareOutlined, MinusSquareOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import katex from 'katex';
 import mammoth from 'mammoth';
 import TurndownService from 'turndown';
 
@@ -39,12 +40,37 @@ export interface QuestionItem {
   fullContent?: string;
 }
 
-/* ---------- Utils ---------- */
+/* ---------- HTML → safe renderable HTML with KaTeX ---------- */
+
+function renderFormulaSpans(html: string): string {
+  if (!html) return '';
+  return html.replace(
+    /<span[^>]*data-w-e-type="formula"[^>]*data-value="([^"]*)"[^>]*><\/span>/g,
+    (_match, formula) => {
+      try {
+        return katex.renderToString(formula, { throwOnError: false, displayMode: false });
+      } catch {
+        return `<code>${formula}</code>`;
+      }
+    }
+  );
+}
+
+function renderHtmlWithKatex(html: string): string {
+  if (!html) return '';
+  let result = renderFormulaSpans(html);
+  // Sanitize: only allow safe tags, strip scripts/events
+  result = result.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+  result = result.replace(/\son\w+\s*=\s*"[^"]*"/gi, '');
+  result = result.replace(/\son\w+\s*=\s*'[^']*'/gi, '');
+  return result;
+}
+
+/* ---------- Strip HTML for plain text display ---------- */
 
 function stripHtml(html: string): string {
   if (!html) return '';
-  return html
-    .replace(/<span[^>]*data-w-e-type="formula"[^>]*data-value="([^"]*)"[^>]*><\/span>/g, ' $$$1$$ ')
+  return renderFormulaSpans(html)
     .replace(/<img[^>]*>/g, '[图片]')
     .replace(/<[^>]*>/g, '')
     .replace(/&nbsp;/g, ' ')
@@ -54,6 +80,36 @@ function stripHtml(html: string): string {
     .replace(/&quot;/g, '"')
     .trim();
 }
+
+/* ---------- RichContent component ---------- */
+
+function RichContent({ html, style }: { html: string; style?: React.CSSProperties }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const rendered = useMemo(() => renderHtmlWithKatex(html), [html]);
+
+  useEffect(() => {
+    if (ref.current) {
+      // Inject KaTeX CSS once
+      if (!document.getElementById('katex-css-inline')) {
+        const link = document.createElement('link');
+        link.id = 'katex-css-inline';
+        link.rel = 'stylesheet';
+        link.href = 'https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css';
+        ref.current.ownerDocument.head.appendChild(link);
+      }
+    }
+  }, []);
+
+  return (
+    <div
+      ref={ref}
+      style={{ lineHeight: 1.8, fontSize: 13, ...style }}
+      dangerouslySetInnerHTML={{ __html: rendered }}
+    />
+  );
+}
+
+/* ---------- Parse ---------- */
 
 const QUESTION_BANK_URL = 'yihui100.com/api/question/bank/list';
 
@@ -126,13 +182,13 @@ export default function QuestionBankPanel({ questions, getPopupContainer }: Prop
   const [keyword, setKeyword] = useState('');
   const [difficulty, setDifficulty] = useState<string>('ALL');
   const [questionType, setQuestionType] = useState<string>('ALL');
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   // Word → Markdown
   const [markdown, setMarkdown] = useState('');
   const [converting, setConverting] = useState(false);
   const [imageUploadResults, setImageUploadResults] = useState<{ total: number; uploaded: number; failed: number } | null>(null);
 
-  // Derive unique question types from data
   const questionTypeOptions = useMemo(() => {
     const types = new Set<string>();
     questions.forEach((q) => { if (q.questionTypeName) types.add(q.questionTypeName); });
@@ -142,7 +198,6 @@ export default function QuestionBankPanel({ questions, getPopupContainer }: Prop
     ];
   }, [questions]);
 
-  // Filtering
   const filtered = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
     return questions.filter((q) => {
@@ -156,8 +211,31 @@ export default function QuestionBankPanel({ questions, getPopupContainer }: Prop
     });
   }, [questions, keyword, difficulty, questionType]);
 
-  // Table columns
+  const toggleExpand = useCallback((id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
   const columns: ColumnsType<QuestionItem> = [
+    {
+      title: '',
+      width: 40,
+      render: (_: unknown, r: QuestionItem) => {
+        const expanded = expandedIds.has(r.id);
+        return (
+          <Button
+            type="text"
+            size="small"
+            icon={expanded ? <MinusSquareOutlined /> : <PlusSquareOutlined />}
+            onClick={() => toggleExpand(r.id)}
+            style={{ color: expanded ? '#722ed1' : '#666' }}
+          />
+        );
+      },
+    },
     {
       title: '题号',
       dataIndex: 'questionNo',
@@ -173,12 +251,18 @@ export default function QuestionBankPanel({ questions, getPopupContainer }: Prop
     {
       title: '题目内容',
       dataIndex: 'questionContent',
-      ellipsis: true,
-      render: (html: string) => (
-        <Tooltip title={stripHtml(html)} getPopupContainer={getPopupContainer} overlayStyle={{ maxWidth: 400 }}>
-          <span style={{ cursor: 'default' }}>{stripHtml(html).slice(0, 80)}</span>
-        </Tooltip>
-      ),
+      render: (html: string, record: QuestionItem) => {
+        if (expandedIds.has(record.id)) {
+          return <RichContent html={record.fullContent || html} />;
+        }
+        return (
+          <Tooltip title={stripHtml(html)} getPopupContainer={getPopupContainer} overlayStyle={{ maxWidth: 400 }}>
+            <span style={{ cursor: 'pointer' }} onClick={() => toggleExpand(record.id)}>
+              {stripHtml(html).slice(0, 80)}{stripHtml(html).length > 80 ? '…' : ''}
+            </span>
+          </Tooltip>
+        );
+      },
     },
     {
       title: '学科',
@@ -203,7 +287,7 @@ export default function QuestionBankPanel({ questions, getPopupContainer }: Prop
     },
     {
       title: '知识点',
-      width: 160,
+      width: 140,
       ellipsis: true,
       render: (_: unknown, r: QuestionItem) => (
         <Tooltip title={r.pointList?.map((p) => p.name).join('、')} getPopupContainer={getPopupContainer}>
@@ -212,17 +296,13 @@ export default function QuestionBankPanel({ questions, getPopupContainer }: Prop
       ),
     },
     {
-      title: '标签',
-      dataIndex: 'tagNames',
-      width: 140,
-      ellipsis: true,
-      render: (names: string[]) => names?.map((n) => <Tag key={n} color="geekblue" style={{ marginBottom: 2 }}>{n}</Tag>),
-    },
-    {
-      title: '子题',
-      dataIndex: 'detailList',
-      width: 60,
-      render: (d: QuestionDetail[]) => d?.length || 0,
+      title: '操作',
+      width: 80,
+      render: (_: unknown, record: QuestionItem) => (
+        <Button type="link" size="small" icon={<FileTextOutlined />} onClick={() => handleConvertQuestion(record)}>
+          转MD
+        </Button>
+      ),
     },
   ];
 
@@ -234,8 +314,6 @@ export default function QuestionBankPanel({ questions, getPopupContainer }: Prop
 
     try {
       const arrayBuffer = await file.arrayBuffer();
-
-      // Collect images for upload
       const images: { base64: string; contentType: string; index: number }[] = [];
       let imageIndex = 0;
 
@@ -256,7 +334,6 @@ export default function QuestionBankPanel({ questions, getPopupContainer }: Prop
       const turndown = createTurndown();
       let md = turndown.turndown(result.value);
 
-      // Upload images and replace placeholders
       if (images.length > 0) {
         let uploaded = 0;
         let failed = 0;
@@ -282,10 +359,9 @@ export default function QuestionBankPanel({ questions, getPopupContainer }: Prop
       setConverting(false);
     }
 
-    return false; // prevent antd default upload
+    return false;
   }, []);
 
-  // Copy/Download markdown
   const handleCopyMarkdown = useCallback(() => {
     navigator.clipboard.writeText(markdown).then(() => message.success('已复制到剪贴板'));
   }, [markdown]);
@@ -300,7 +376,6 @@ export default function QuestionBankPanel({ questions, getPopupContainer }: Prop
     URL.revokeObjectURL(url);
   }, [markdown]);
 
-  // Convert a single question's content to Markdown
   const handleConvertQuestion = useCallback((record: QuestionItem) => {
     const td = createTurndown();
     const html = record.fullContent || record.questionContent;
@@ -308,20 +383,6 @@ export default function QuestionBankPanel({ questions, getPopupContainer }: Prop
     setMarkdown((prev) => (prev ? prev + '\n\n---\n\n' + md : md));
     message.success(`题号 ${record.questionNo} 已添加到转换区`);
   }, []);
-
-  // Enhanced columns with action
-  const columnsWithAction: ColumnsType<QuestionItem> = [
-    ...columns,
-    {
-      title: '操作',
-      width: 80,
-      render: (_: unknown, record: QuestionItem) => (
-        <Button type="link" size="small" icon={<FileTextOutlined />} onClick={() => handleConvertQuestion(record)}>
-          转MD
-        </Button>
-      ),
-    },
-  ];
 
   const drawerTitle = (
     <Space>
@@ -379,21 +440,59 @@ export default function QuestionBankPanel({ questions, getPopupContainer }: Prop
                   <Table<QuestionItem>
                     rowKey="id"
                     size="small"
-                    columns={columnsWithAction}
+                    columns={columns}
                     dataSource={filtered}
-                    scroll={{ x: 1100, y: 'calc(100vh - 280px)' }}
+                    scroll={{ x: 1000, y: 'calc(100vh - 280px)' }}
                     expandable={{
+                      expandedRowKeys: [...expandedIds],
+                      onExpandedRowsChange: (keys) => setExpandedIds(new Set(keys as string[])),
                       rowExpandable: (r) => !!r.detailList?.length,
                       expandedRowRender: (r) => (
-                        <div style={{ margin: '8px 0' }}>
+                        <div style={{ margin: '4px 0' }}>
+                          {/* Full question content */}
+                          <div style={{ marginBottom: 12, padding: 10, background: 'rgba(255,255,255,0.06)', borderRadius: 6, borderLeft: '3px solid #722ed1' }}>
+                            <div style={{ marginBottom: 4, fontSize: 11, color: '#999' }}>题目内容</div>
+                            <RichContent html={r.fullContent || r.questionContent} />
+                          </div>
+                          {/* Knowledge points */}
+                          {r.pointList?.length > 0 && (
+                            <div style={{ marginBottom: 8 }}>
+                              <span style={{ color: '#999', fontSize: 11, marginRight: 6 }}>知识点：</span>
+                              {r.pointList.map((p) => <Tag key={p.id} color="blue" style={{ marginBottom: 2 }}>{p.name}</Tag>)}
+                            </div>
+                          )}
+                          {/* Tags */}
+                          {r.tagNames?.length > 0 && (
+                            <div style={{ marginBottom: 10 }}>
+                              <span style={{ color: '#999', fontSize: 11, marginRight: 6 }}>标签：</span>
+                              {r.tagNames.map((n) => <Tag key={n} color="geekblue" style={{ marginBottom: 2 }}>{n}</Tag>)}
+                            </div>
+                          )}
+                          {/* Sub-questions */}
                           {r.detailList?.map((d) => (
-                            <div key={d.id} style={{ marginBottom: 12, padding: 8, background: 'rgba(255,255,255,0.04)', borderRadius: 6 }}>
-                              <div><Tag color="orange">子题 {d.subQuestionNo}</Tag> <Tag>{d.difficultyName}</Tag> <Tag color="blue">{d.questionCapacityName}</Tag></div>
+                            <div key={d.id} style={{ marginBottom: 10, padding: 10, background: 'rgba(255,255,255,0.04)', borderRadius: 6 }}>
+                              <div style={{ marginBottom: 6 }}>
+                                <Tag color="orange">子题 {d.subQuestionNo}</Tag>
+                                <Tag>{d.difficultyName}</Tag>
+                                {d.questionCapacityName && <Tag color="blue">{d.questionCapacityName}</Tag>}
+                              </div>
+                              {d.questionAnswer && d.questionAnswer !== '<p></p>' && (
+                                <div style={{ marginBottom: 6 }}>
+                                  <div style={{ color: '#52c41a', fontSize: 11, marginBottom: 2, fontWeight: 'bold' }}>答案</div>
+                                  <RichContent html={d.questionAnswer} />
+                                </div>
+                              )}
                               {d.famousTeacherGuide && (
-                                <div style={{ marginTop: 6 }}><strong>名师指导：</strong>{stripHtml(d.famousTeacherGuide)}</div>
+                                <div style={{ marginBottom: 6 }}>
+                                  <div style={{ color: '#faad14', fontSize: 11, marginBottom: 2, fontWeight: 'bold' }}>名师指导</div>
+                                  <RichContent html={d.famousTeacherGuide} />
+                                </div>
                               )}
                               {d.questionAnalysis && (
-                                <div style={{ marginTop: 4 }}><strong>解析：</strong>{stripHtml(d.questionAnalysis).slice(0, 300)}{stripHtml(d.questionAnalysis).length > 300 ? '…' : ''}</div>
+                                <div>
+                                  <div style={{ color: '#40a9ff', fontSize: 11, marginBottom: 2, fontWeight: 'bold' }}>解析</div>
+                                  <RichContent html={d.questionAnalysis} />
+                                </div>
                               )}
                             </div>
                           ))}

@@ -1,5 +1,5 @@
 import { MSG_TYPES, STORAGE_KEYS } from '@shared/constants';
-import type { CapturedRequest, CaptureState, FilterRule } from '@shared/types';
+import type { CapturedRequest, CaptureState, FilterRule, CaptureScopeRule } from '@shared/types';
 
 const PORT_NAME = 'api-inspector';
 
@@ -66,6 +66,7 @@ async function saveFilterRules(rules: FilterRule[]): Promise<void> {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  void (async () => {
   const { type, payload } = message;
 
   switch (type) {
@@ -145,9 +146,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       break;
     }
 
+    case MSG_TYPES.GET_CAPTURE_SCOPE: {
+      const result = await chrome.storage.local.get(STORAGE_KEYS.CAPTURE_SCOPE);
+      sendResponse({ rules: (result[STORAGE_KEYS.CAPTURE_SCOPE] ?? []) as CaptureScopeRule[] });
+      break;
+    }
+
+    case MSG_TYPES.UPDATE_CAPTURE_SCOPE: {
+      const { rules } = payload as { rules: CaptureScopeRule[] };
+      await chrome.storage.local.set({ [STORAGE_KEYS.CAPTURE_SCOPE]: rules });
+      sendResponse({ ok: true });
+      break;
+    }
+
     default:
       sendResponse({ error: 'Unknown message type' });
   }
+  })();
 
   return true; // keep sendResponse channel open for async
 });

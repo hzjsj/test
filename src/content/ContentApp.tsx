@@ -67,7 +67,7 @@ export default function ContentApp({ shadowRoot }: { shadowRoot: ShadowRoot }) {
         setQuestionBankItems((prev) => {
           const existingIds = new Set(prev.map((q) => q.id));
           const newItems = items.filter((q) => !existingIds.has(q.id));
-          return [...prev, ...newItems];
+          return [...newItems, ...prev];
         });
       }
     }

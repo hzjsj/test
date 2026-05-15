@@ -51,3 +51,10 @@ export interface ConsoleEntry {
   request: CapturedRequest;
   timestamp: number;
 }
+
+export interface CaptureScopeRule {
+  id: string;
+  domain: string;
+  path: string;
+  enabled: boolean;
+}

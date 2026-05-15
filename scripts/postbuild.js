@@ -20,8 +20,8 @@ function bumpPatchVersion(version) {
 const rootManifestPath = resolve(root, 'manifest.json');
 const manifest = JSON.parse(readFileSync(rootManifestPath, 'utf-8'));
 manifest.version = bumpPatchVersion(manifest.version);
-writeFileSync(rootManifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-writeFileSync(resolve(dist, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+writeFileSync(rootManifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf-8');
+writeFileSync(resolve(dist, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf-8');
 
 // Step 2: Copy icons
 const iconsDir = resolve(dist, 'icons');
@@ -39,7 +39,7 @@ writeFileSync(resolve(devtoolsDir, 'devtools.html'), `<!DOCTYPE html>
 <body>
 <script src="devtools.js"><\/script>
 </body>
-</html>`);
+</html>`, 'utf-8');
 
 const devtoolsIife = resolve(dist, 'devtools.iife.js');
 if (existsSync(devtoolsIife)) {
@@ -48,7 +48,8 @@ if (existsSync(devtoolsIife)) {
   console.warn('devtools.iife.js missing; falling back to stub devtools.js');
   writeFileSync(
     resolve(devtoolsDir, 'devtools.js'),
-    `chrome.devtools.panels.create('API Inspector','icons/icon16.png','devtools/panel/panel.html');`
+    `chrome.devtools.panels.create('API Inspector','icons/icon16.png','devtools/panel/panel.html');`,
+    'utf-8'
   );
 }
 
@@ -72,7 +73,7 @@ writeFileSync(resolve(panelDir, 'panel.html'), `<!DOCTYPE html>
 <div id="app"></div>
 <script src="panel.js"><\/script>
 </body>
-</html>`);
+</html>`, 'utf-8');
 
 // Move panel IIFE to panel dir
 const panelIife = resolve(dist, 'panel.iife.js');
@@ -99,7 +100,7 @@ writeFileSync(resolve(popupDir, 'popup.html'), `<!DOCTYPE html>
 <div id="app"></div>
 <script src="popup.js"><\/script>
 </body>
-</html>`);
+</html>`, 'utf-8');
 
 const popupIife = resolve(dist, 'popup.iife.js');
 if (existsSync(popupIife)) {
@@ -112,7 +113,25 @@ if (existsSync(swIife)) {
   renameSync(swIife, resolve(dist, 'service-worker.js'));
 }
 
-// Step 7: Clean up
+// Step 7: Ensure all JS files are UTF-8 without BOM (Chrome Manifest V3 requirement)
+const UTF8_BOM = Buffer.from([0xEF, 0xBB, 0xBF]);
+for (const jsFile of [
+  resolve(dist, 'content-script.js'),
+  resolve(dist, 'service-worker.js'),
+  resolve(devtoolsDir, 'devtools.js'),
+  resolve(panelDir, 'panel.js'),
+  resolve(popupDir, 'popup.js'),
+]) {
+  if (!existsSync(jsFile)) continue;
+  const buf = readFileSync(jsFile);
+  // Strip BOM if present, then re-encode as UTF-8 without BOM
+  const clean = buf.slice(0, 3).equals(UTF8_BOM) ? buf.slice(3) : buf;
+  // Decode as UTF-8 and write back to ensure correct encoding
+  const text = clean.toString('utf-8');
+  writeFileSync(jsFile, text, 'utf-8');
+}
+
+// Step 8: Clean up
 for (const f of ['chunks', 'assets', 'src', 'panel.js', 'popup.js', 'api-inspector.css']) {
   const p = resolve(dist, f);
   if (existsSync(p)) {

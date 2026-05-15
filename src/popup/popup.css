@@ -192,3 +192,101 @@ body {
   padding: 10px 0;
   line-height: 1.5;
 }
+
+/* Capture scope */
+.scope-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: 3px;
+  margin-bottom: 3px;
+  border: 1px solid var(--border);
+  font-size: 11px;
+}
+
+.scope-item.active {
+  border-color: var(--success);
+  color: var(--text);
+}
+
+.scope-item.disabled {
+  opacity: 0.4;
+}
+
+.scope-toggle {
+  cursor: pointer;
+  color: var(--success);
+  font-size: 10px;
+}
+
+.scope-item.disabled .scope-toggle {
+  color: var(--text-dim);
+}
+
+.scope-domain {
+  color: var(--accent);
+  font-weight: bold;
+}
+
+.scope-path {
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100px;
+}
+
+.scope-remove {
+  margin-left: auto;
+  cursor: pointer;
+  opacity: 0.6;
+  font-size: 10px;
+}
+
+.scope-remove:hover {
+  opacity: 1;
+}
+
+.scope-add {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.scope-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  outline: none;
+}
+
+.scope-input:focus {
+  border-color: var(--accent);
+}
+
+.scope-input-path {
+  flex: 0.7;
+}
+
+.scope-add-btn {
+  padding: 4px 8px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.scope-add-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

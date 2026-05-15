@@ -8,6 +8,7 @@ import { RequestList } from './components/RequestList';
 import { RequestDetail } from './components/RequestDetail';
 import { ConsolePanel } from './components/ConsolePanel';
 import { RequestsDrawerFab } from './components/RequestsDrawerFab';
+import { QuestionBankFab } from './components/QuestionBankFab';
 import { applyFilters } from '@shared/filter-engine';
 import { MSG_TYPES, STORAGE_KEYS } from '@shared/constants';
 import { sendMessage } from '@shared/message-bus';
@@ -185,6 +186,7 @@ function App() {
         )}
       </div>
       <RequestsDrawerFab requests={requests} />
+      <QuestionBankFab requests={requests} />
     </ConfigProvider>
   );
 }

@@ -54,7 +54,8 @@ yihui100/
 │   │       │   ├── RequestList.tsx
 │   │       │   ├── RequestDetail.tsx
 │   │       │   ├── ConsolePanel.tsx
-│   │       │   └── RequestsDrawerFab.tsx  # 右下角 Affix + Drawer 内 Table 请求表
+│   │       │   ├── RequestsDrawerFab.tsx  # 右下角 Affix + Drawer 内 Table 请求表
+│   │       │   └── QuestionBankFab.tsx    # 题库悬浮按钮（实时监听请求数据）
 │   │       └── hooks/
 │   │           └── useInspectorRequests.ts  # 与 Background/Port 同步的请求列表
 │   ├── popup/
@@ -95,6 +96,7 @@ chrome.devtools.network.onRequestFinished
         ▼
   DevTools 后台页 (dist/devtools/devtools.js，由 src/devtools/devtools.ts 构建)
   - 读取 tab_inspector_settings：是否暂停捕获、是否保留日志
+  - 检查捕获范围白名单（chrome.storage.local → capture_scope）：白名单为空或不匹配则跳过
   - captureFromNetworkRequest() → CapturedRequest（含 entry.getContent 响应体）
         │
         ├─ sendMessage(CAPTURED_REQUEST) → Background（落库 + Port 广播 request + 转发到 Content Script 页面浮窗）
@@ -135,10 +137,13 @@ chrome.devtools.network.onRequestFinished
 ### 2. 题库数据面板
 
 - **自动监听** `yihui100.com/api/question/bank/list` 接口响应，解析 JSON 提取题目列表并去重合并。
+- **最新题目优先**：新捕获的题目排在列表最前面，确保最新数据始终在第一页。
+- **KaTeX 公式渲染**：题目中的数学公式（`<span data-w-e-type="formula">` 标签）实时渲染为数学排版，需要时自动注入 KaTeX CSS。
+- **可展开行详情**：点击每行前的 `+` 图标展开查看完整题目内容（富文本渲染）和子题详情（答案、名师指导、解析）。
 - 页面右下角显示**紫色圆形按钮**（Badge 角标显示题目数量），点击弹出 Drawer 抽屉。
 - **题库数据 Tab**：
-  - **Table 列**：题号 / 题型（Tag） / 题目内容（HTML 脱敏显示 + Tooltip 完整内容） / 学科 / 难度（颜色标签） / 能力 / 知识点 / 标签 / 子题数。
-  - 可展开行查看子题详情（名师指导、解析等）。
+  - **Table 列**：展开按钮 / 题号 / 题型（Tag） / 题目内容（HTML 脱敏显示 + Tooltip 完整内容；点击展开完整渲染） / 学科 / 难度（颜色标签） / 能力 / 知识点 / 标签 / 操作。
+  - 可展开行查看子题详情（名师指导、解析等），子题内容同样使用 KaTeX 渲染公式。
   - **筛选栏**：关键词搜索（题目/知识点/标签）+ 题型下拉（从数据自动提取）+ 难度下拉（简单/一般/困难）。
   - 每行「转 MD」按钮，可将单题 HTML 转为 Markdown 追加到 Word 转换 Tab。
 - **Word 转换 Tab**：
@@ -147,6 +152,7 @@ chrome.devtools.network.onRequestFinished
   - 图片自动上传到 `yihui100.com` 服务器（`/api/resource/file/upload`），替换为线上 URL。
   - 上传结果统计：共 N 张，成功 X 张，失败 Y 张。
   - 支持**复制 Markdown**到剪贴板、**下载 `.md` 文件**。
+- **DevTools 面板题库按钮**：DevTools「API Inspector」面板右下角也有紫色悬浮按钮，从面板内的请求数据实时解析题库，与页面浮窗逻辑一致。
 
 ### 3. 自动识别接口模式
 
@@ -168,7 +174,16 @@ chrome.devtools.network.onRequestFinished
 - 排除规则：请求不得匹配任何一条（隐藏匹配的）
 - 支持启用/禁用单条规则而不删除
 
-### 5. 双控制台输出
+### 5. 域名/路径白名单（捕获范围）
+
+- **默认不捕获任何请求**：白名单为空时，扩展静默运行，不拦截任何网络请求。
+- 在 **Popup 弹窗** 中配置域名 + 路径白名单规则（可添加多条）。
+- 每条规则包含：**域名**（如 `yihui100.com`）、**路径前缀**（可选，如 `/api/`）、**启用/禁用**开关。
+- URL 匹配逻辑：请求 URL 的 hostname 包含规则域名 且 pathname 以路径前缀开头（路径为空则匹配全路径）。
+- DevTools 后台页在 `onRequestFinished` 中检查白名单，不匹配的请求直接跳过，不进入捕获流水线。
+- Service Worker 转发 `REQUEST_FOR_CONTENT` 时也受白名单约束。
+
+### 6. 双控制台输出
 
 **浏览器 Console**（页面上下文）：
 
@@ -178,6 +193,13 @@ chrome.devtools.network.onRequestFinished
 **插件内置控制台**：DevTools 面板内区域，仅追加**实时捕获**的请求，支持导出 JSON；清空列表或导航清空时会与请求列表一并重置（见面板逻辑）。
 
 ### 6. 右下角请求表（Ant Design）
+
+#### DevTools 面板内
+
+- 面板右下角 **蓝色圆形按钮**（请求表）+ **紫色圆形按钮**（题库数据），点击分别打开 Drawer 抽屉。
+- 请求表抽屉：以 **`Table`** 展示当前已捕获的**全量请求**，筛选支持 URL 关键词和 HTTP 方法。
+- 题库数据抽屉：实时从面板请求数据中解析 `question/bank/list` 响应，展示题库表格（含 KaTeX 公式渲染、子题展开），最新题目排在第一页。
+- 遵循 [Ant Design 文档索引 / llms-full](https://ant.design/llms-full.txt) 中的组件约定。
 
 #### DevTools 面板内
 
@@ -228,6 +250,7 @@ npm run build
    - 生成 `devtools.html`、`devtools/panel/panel.html`、`popup.html`（CSS 内联）
    - 移动/重命名各 IIFE 产物到约定路径
    - 读取根目录 `manifest.json`，将 **patch 版本号 +1** 后写回**根目录与 `dist/manifest.json`**（便于每次打包后 Chrome 识别为新版本；提交前请留意 Git 中的版本变更）
+   - **强制 UTF-8 无 BOM 编码**：对所有 JS 产物和 manifest.json 读取并去除 BOM → UTF-8 解码 → UTF-8 写回，确保 Windows 下不会因 GBK 编码导致 Chrome 加载失败
    - 确保 `dist` 目录存在；复制图标；清理中间文件
 
 > **Windows 提示**：仓库内 `npm run build` 使用 Unix 风格命令（`rm -rf`、`BUILD_TARGET=...`）。在 PowerShell 下若失败，可在 Git Bash 中执行，或分段执行 `vite build` 与各 `BUILD_TARGET` 构建后再运行 `node scripts/postbuild.js`。
@@ -255,8 +278,9 @@ npm run build
 
 ## 关键文件说明
 
-- `src/devtools/devtools.ts` — DevTools 后台入口：注册 `panels.create`、网络监听、导航清空逻辑；**面板 HTML 路径须为相对扩展根的 `devtools/panel/panel.html`**
+- `src/devtools/devtools.ts` — DevTools 后台入口：注册 `panels.create`、网络监听、导航清空逻辑、**捕获范围白名单过滤**；**面板 HTML 路径须为相对扩展根的 `devtools/panel/panel.html`**
 - `src/devtools/panel/components/RequestsDrawerFab.tsx` — Ant Design：`Affix` 固钉、`Drawer`、`Table` 与 URL / Method 筛选
+- `src/devtools/panel/components/QuestionBankFab.tsx` — 题库悬浮按钮组件（从面板请求数据实时解析题库，KaTeX 渲染 + 子题展开）
 - `src/devtools/panel/panel.tsx` — 根组件：`ConfigProvider`（暗色主题 + 中文 locale）+ 原有布局 + 挂载请求抽屉
 - `src/devtools/panel/hooks/useInspectorRequests.ts` — 初始拉取 Background 请求列表、Port 实时同步、与存储联动的暂停/保留日志
 - `src/shared/har-request.ts` — `captureFromNetworkRequest`，HAR 与响应体标准化
@@ -265,12 +289,49 @@ npm run build
 - `src/content/content-script.tsx` — 页面 Console 格式化输出 + Shadow DOM 挂载 React 应用 + 接收 REQUEST_FOR_CONTENT 消息驱动浮窗
 - `src/content/ContentApp.tsx` — 页面浮窗 UI：请求捕获按钮 + 题库数据按钮 + 两个 Drawer
 - `src/content/QuestionBankPanel.tsx` — 题库数据面板（Table + 筛选 + 子题展开）+ Word→Markdown 转换（mammoth + Turndown + 图片上传）
-- `src/shared/constants.ts` — 消息类型（含 `REQUEST_FOR_CONTENT`）、`STORAGE_KEYS`（含 `tab_inspector_settings` 等）
+- `src/shared/constants.ts` — 消息类型（含 `REQUEST_FOR_CONTENT`、`GET_CAPTURE_SCOPE`、`UPDATE_CAPTURE_SCOPE`）、`STORAGE_KEYS`（含 `capture_scope` 等）
 - `manifest.json` — 权限与入口；版本号在 `postbuild` 时自动 patch +1
-- `scripts/postbuild.js` — HTML 生成、产物移动、**manifest 版本递增**、面板路径兜底
+- `scripts/postbuild.js` — HTML 生成、产物移动、**manifest 版本递增**、面板路径兜底、**强制 UTF-8 无 BOM 编码**
 - `vite.config.ts` — 多入口构建（含 `BUILD_TARGET=devtools`）
 
 ## 更新日志
+
+### v1.0.6 — 域名白名单 + KaTeX 渲染 + 面板题库按钮 + 最新排序
+
+**新增功能**
+
+- **域名/路径白名单配置**：默认不捕获任何请求，用户在 Popup 中配置指定域名和路径后才监听。
+  - Popup 新增「捕获范围」区域：输入域名 + 路径（可选）+ 添加按钮。
+  - 已有规则列表支持启用/禁用、删除。
+  - 白名单为空时提示「未配置域名，默认不捕获任何请求」。
+  - DevTools 后台页 `onRequestFinished` 检查白名单，不匹配的请求直接跳过。
+  - Service Worker 转发 `REQUEST_FOR_CONTENT` 时也受白名单约束。
+- **KaTeX 公式渲染**：题目内容和子题详情中的数学公式（`<span data-w-e-type="formula" data-value="...">` 标签）实时渲染为数学排版，自动注入 KaTeX CSS。
+- **可展开行详情**：点击每行前的 `+`/`-` 图标，展开查看完整题目内容（富文本渲染）和子题详情（答案、名师指导、解析），子题内容同样使用 KaTeX 渲染。
+- **DevTools 面板题库悬浮按钮**：面板右下角新增紫色圆形按钮，从面板内的请求数据实时解析 `question/bank/list` 响应，展示题库表格，与页面浮窗逻辑一致。
+- **最新题目优先排序**：新捕获的题目排在列表最前面，确保最新数据始终在第一页。Content Script 和 DevTools 面板均已应用。
+
+**文件变更**
+
+- `src/shared/types.ts`：新增 `CaptureScopeRule` 接口（`{ id, domain, path, enabled }`）。
+- `src/shared/constants.ts`：新增 `STORAGE_KEYS.CAPTURE_SCOPE`、`MSG_TYPES.GET_CAPTURE_SCOPE`、`MSG_TYPES.UPDATE_CAPTURE_SCOPE`。
+- `src/devtools/devtools.ts`：新增 `matchesCaptureScope()` 白名单过滤函数，`onRequestFinished` 中检查白名单规则；缓存规则并监听 `chrome.storage.onChanged` 实时更新。
+- `src/background/service-worker.ts`：新增 `GET_CAPTURE_SCOPE` / `UPDATE_CAPTURE_SCOPE` 消息处理；`onMessage` 监听器改为 async IIFE 包装。
+- `src/popup/popup.tsx`：新增「捕获范围」配置 UI（域名 + 路径输入、添加/删除/启用禁用规则）。
+- `src/popup/popup.css`：新增 `.scope-item`、`.scope-add`、`.scope-input` 等样式。
+- `src/devtools/panel/components/QuestionBankFab.tsx`（新建）：面板题库悬浮按钮组件，从 `requests` prop 实时解析题库数据，含 KaTeX 渲染 + 子题展开 + 最新排序。
+- `src/devtools/panel/panel.tsx`：集成 `QuestionBankFab` 组件。
+- `src/content/ContentApp.tsx`：`pushRequest` 中新题目前置插入（`[...newItems, ...prev]`），最新题目优先。
+- `src/content/QuestionBankPanel.tsx`：题目内容使用 `RichContent` 组件渲染（KaTeX），行展开查看子题详情。
+
+**Bug 修复**
+
+- **构建产物编码问题**：Chrome 加载扩展时报错「该文件采用的不是 UTF-8 编码」。原因是 Windows 下 Node.js `writeFileSync` 默认使用 GBK 编码写入含中文的文件，Chrome Manifest V3 要求所有文件必须是 UTF-8（无 BOM）。
+  - `scripts/postbuild.js`：新增步骤 7，对所有 JS 构建产物强制重编码为 UTF-8 无 BOM（读取 → 去 BOM → UTF-8 解码 → UTF-8 写回）。
+  - `scripts/postbuild.js`：所有 `writeFileSync` 调用显式指定 `'utf-8'` 编码（包括 manifest.json、HTML 文件），避免 Windows 默认 GBK 写入。
+  - 之前尝试加 BOM 反而可能导致问题，现已改为**UTF-8 无 BOM**（Chrome 推荐格式）。
+
+---
 
 ### v1.0.5 — 题库数据面板 + Word 转 Markdown
 

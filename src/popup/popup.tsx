@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MSG_TYPES, STORAGE_KEYS } from '@shared/constants';
 import { extractApiPatterns, patternToFilterRule } from '@shared/filter-engine';
-import type { FilterRule, CaptureState, CapturedRequest, ApiPattern } from '@shared/types';
+import type { FilterRule, CaptureState, CapturedRequest, ApiPattern, CaptureScopeRule } from '@shared/types';
 import './popup.css';
 
 function App() {
@@ -14,6 +14,9 @@ function App() {
   const [filterRules, setFilterRules] = useState<FilterRule[]>([]);
   const [patterns, setPatterns] = useState<ApiPattern[]>([]);
   const [requests, setRequests] = useState<CapturedRequest[]>([]);
+  const [scopeRules, setScopeRules] = useState<CaptureScopeRule[]>([]);
+  const [newDomain, setNewDomain] = useState('');
+  const [newPath, setNewPath] = useState('');
 
   useEffect(() => {
     async function load() {
@@ -48,13 +51,27 @@ function App() {
         /* ignore */
       }
 
-      chrome.storage.local.get(STORAGE_KEYS.FILTER_RULES, (result) => {
+      chrome.storage.local.get([STORAGE_KEYS.FILTER_RULES, STORAGE_KEYS.CAPTURE_SCOPE], (result) => {
         if (result[STORAGE_KEYS.FILTER_RULES]) {
           setFilterRules(result[STORAGE_KEYS.FILTER_RULES]);
+        }
+        if (result[STORAGE_KEYS.CAPTURE_SCOPE]) {
+          setScopeRules(result[STORAGE_KEYS.CAPTURE_SCOPE]);
         }
       });
     }
     void load();
+  }, []);
+
+  // Listen for scope changes from other contexts
+  useEffect(() => {
+    const listener = (changes: { [key: string]: chrome.storage.StorageChange }) => {
+      if (changes[STORAGE_KEYS.CAPTURE_SCOPE]) {
+        setScopeRules(changes[STORAGE_KEYS.CAPTURE_SCOPE].newValue ?? []);
+      }
+    };
+    chrome.storage.onChanged.addListener(listener);
+    return () => chrome.storage.onChanged.removeListener(listener);
   }, []);
 
   const activeRulePatterns = new Set(filterRules.map((r) => r.pattern));
@@ -88,6 +105,40 @@ function App() {
     [filterRules]
   );
 
+  // Capture scope handlers
+  const saveScopeRules = useCallback((rules: CaptureScopeRule[]) => {
+    setScopeRules(rules);
+    chrome.storage.local.set({ [STORAGE_KEYS.CAPTURE_SCOPE]: rules });
+  }, []);
+
+  const handleAddScope = useCallback(() => {
+    const domain = newDomain.trim();
+    if (!domain) return;
+    const rule: CaptureScopeRule = {
+      id: crypto.randomUUID(),
+      domain,
+      path: newPath.trim(),
+      enabled: true,
+    };
+    saveScopeRules([...scopeRules, rule]);
+    setNewDomain('');
+    setNewPath('');
+  }, [newDomain, newPath, scopeRules, saveScopeRules]);
+
+  const handleRemoveScope = useCallback(
+    (id: string) => {
+      saveScopeRules(scopeRules.filter((r) => r.id !== id));
+    },
+    [scopeRules, saveScopeRules]
+  );
+
+  const handleToggleScope = useCallback(
+    (id: string) => {
+      saveScopeRules(scopeRules.map((r) => (r.id === id ? { ...r, enabled: !r.enabled } : r)));
+    },
+    [scopeRules, saveScopeRules]
+  );
+
   return (
     <div className="popup">
       <div className="popup-header">
@@ -108,6 +159,48 @@ function App() {
         </div>
       </div>
 
+      {/* Capture Scope */}
+      <div className="popup-section">
+        <h2>捕获范围</h2>
+        {scopeRules.length === 0 && (
+          <div className="empty-hint">未配置域名，默认不捕获任何请求</div>
+        )}
+        {scopeRules.map((rule) => (
+          <div className={`scope-item ${rule.enabled ? 'active' : 'disabled'}`} key={rule.id}>
+            <span className="scope-toggle" onClick={() => handleToggleScope(rule.id)}>
+              {rule.enabled ? '●' : '○'}
+            </span>
+            <span className="scope-domain">{rule.domain}</span>
+            {rule.path && <span className="scope-path">{rule.path}</span>}
+            <span className="scope-remove" onClick={() => handleRemoveScope(rule.id)}>
+              x
+            </span>
+          </div>
+        ))}
+        <div className="scope-add">
+          <input
+            type="text"
+            placeholder="域名 (如 yihui100.com)"
+            value={newDomain}
+            onChange={(e) => setNewDomain(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleAddScope()}
+            className="scope-input"
+          />
+          <input
+            type="text"
+            placeholder="路径 (如 /api/，可选)"
+            value={newPath}
+            onChange={(e) => setNewPath(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleAddScope()}
+            className="scope-input scope-input-path"
+          />
+          <button className="scope-add-btn" onClick={handleAddScope} disabled={!newDomain.trim()}>
+            +
+          </button>
+        </div>
+      </div>
+
+      {/* Filter Rules */}
       <div className="popup-section">
         <h2>接口筛选</h2>
         {filterRules.length > 0 && (

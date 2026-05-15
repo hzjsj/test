@@ -9,6 +9,8 @@ export const MSG_TYPES = {
   CLEAR_REQUESTS: 'CLEAR_REQUESTS',
   TOGGLE_CAPTURE: 'TOGGLE_CAPTURE',
   REQUEST_FOR_CONTENT: 'REQUEST_FOR_CONTENT',
+  GET_CAPTURE_SCOPE: 'GET_CAPTURE_SCOPE',
+  UPDATE_CAPTURE_SCOPE: 'UPDATE_CAPTURE_SCOPE',
 } as const;
 
 export const STORAGE_KEYS = {
@@ -16,6 +18,7 @@ export const STORAGE_KEYS = {
   API_PATTERNS: 'api_patterns',
   /** `{ [tabId: string]: { preserveLog?: boolean; capturePaused?: boolean } }` */
   TAB_INSPECTOR_SETTINGS: 'tab_inspector_settings',
+  CAPTURE_SCOPE: 'capture_scope',
 } as const;
 
 export const MAX_RESPONSE_SIZE = 1024 * 1024; // 1MB

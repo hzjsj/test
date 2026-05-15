@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "API Inspector",
-  "version": "1.0.9",
+  "version": "1.0.15",
   "description": "捕获和筛选网络 API 请求",
   "permissions": [
     "devtools",
