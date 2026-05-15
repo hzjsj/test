@@ -115,6 +115,64 @@ if (existsSync(swIife)) {
 
 // Step 7: Ensure all JS files are UTF-8 without BOM (Chrome Manifest V3 requirement)
 const UTF8_BOM = Buffer.from([0xEF, 0xBB, 0xBF]);
+const UTF16LE_BOM = Buffer.from([0xFF, 0xFE]);
+const UTF16BE_BOM = Buffer.from([0xFE, 0xFF]);
+
+function isLikelyUtf16WithoutBom(buf) {
+  if (buf.length < 4) return false;
+  let evenNulls = 0;
+  let oddNulls = 0;
+  const sample = Math.min(buf.length, 4096);
+  for (let i = 0; i < sample; i += 1) {
+    if (buf[i] === 0x00) {
+      if (i % 2 === 0) evenNulls += 1;
+      else oddNulls += 1;
+    }
+  }
+  // ASCII-heavy UTF-16 data usually has many NUL bytes in one parity.
+  // Be conservative: require both a high NUL ratio and clear parity skew to avoid false positives.
+  const totalNulls = evenNulls + oddNulls;
+  if (totalNulls <= sample * 0.2) return false;
+  return Math.abs(evenNulls - oddNulls) >= sample * 0.1;
+}
+
+function normalizeJsEncoding(jsFile) {
+  const raw = readFileSync(jsFile);
+
+  if (raw.slice(0, 3).equals(UTF8_BOM)) {
+    writeFileSync(jsFile, raw.slice(3));
+    console.log(`[postbuild] stripped UTF-8 BOM: ${jsFile}`);
+    return;
+  }
+
+  if (raw.slice(0, 2).equals(UTF16LE_BOM)) {
+    writeFileSync(jsFile, raw.slice(2).toString('utf16le'), 'utf-8');
+    console.log(`[postbuild] converted UTF-16LE to UTF-8: ${jsFile}`);
+    return;
+  }
+
+  if (raw.slice(0, 2).equals(UTF16BE_BOM)) {
+    const swapped = Buffer.alloc(raw.length - 2);
+    for (let i = 2; i + 1 < raw.length; i += 2) {
+      swapped[i - 2] = raw[i + 1];
+      swapped[i - 1] = raw[i];
+    }
+    writeFileSync(jsFile, swapped.toString('utf16le'), 'utf-8');
+    console.log(`[postbuild] converted UTF-16BE to UTF-8: ${jsFile}`);
+    return;
+  }
+
+  if (isLikelyUtf16WithoutBom(raw)) {
+    writeFileSync(jsFile, raw.toString('utf16le'), 'utf-8');
+    console.log(`[postbuild] converted likely UTF-16 (no BOM) to UTF-8: ${jsFile}`);
+    return;
+  }
+
+  // Validate UTF-8 strictly. If invalid, throw to avoid producing a broken package.
+  new TextDecoder('utf-8', { fatal: true }).decode(raw);
+}
+
+
 for (const jsFile of [
   resolve(dist, 'content-script.js'),
   resolve(dist, 'service-worker.js'),
@@ -123,12 +181,7 @@ for (const jsFile of [
   resolve(popupDir, 'popup.js'),
 ]) {
   if (!existsSync(jsFile)) continue;
-  const buf = readFileSync(jsFile);
-  // Strip BOM if present, then re-encode as UTF-8 without BOM
-  const clean = buf.slice(0, 3).equals(UTF8_BOM) ? buf.slice(3) : buf;
-  // Decode as UTF-8 and write back to ensure correct encoding
-  const text = clean.toString('utf-8');
-  writeFileSync(jsFile, text, 'utf-8');
+  normalizeJsEncoding(jsFile);
 }
 
 // Step 8: Clean up
